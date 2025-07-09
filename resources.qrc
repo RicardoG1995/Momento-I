@@ -1,0 +1,15 @@
+<RCC>
+  <qresource prefix="/">
+    <file>Img/Mapas/1/Fondo.jpg</file>
+    <file>Img/Mapas/1/Piso.jpg</file>
+    <file>Img/Goku/Goku.png</file>
+    <file>Img/Goku/Goku_Saltar.png</file>
+    <file>Img/Goku/Goku_Ataca.png</file>
+    <file>Img/Elementos/Fruta.png</file>
+    <file>Img/Enemigos/Tigre.png</file>
+    <file>Img/Enemigos/Tigre_Ataca.png</file>
+    <file>Img/Bulma/Bulma.png</file>
+    <file>Img/Bulma/Bulma_Salvar.png</file>
+    <file>Img/Elementos/Bala.png</file>
+  </qresource>
+</RCC>
