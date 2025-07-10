@@ -4,7 +4,7 @@
 #include <QtMath> // Para funciones trigonométricas
 
 TigerItem::TigerItem() :
-    direction(1), amplitude(50)
+    direction(1), amplitude(50), isAlive(true)
 {
     // Cargar sprites
     normalPixmap = QPixmap(":/Img/Enemigos/Tigre.png");
@@ -22,7 +22,18 @@ TigerItem::TigerItem() :
 
 // Movimiento oscilatorio tipo onda senoidal
 void TigerItem::moveOscillate() {
+     if (!isAlive) return;
     static qreal t = 0;
     t += 0.1; // Incremento del tiempo simulado
+
+    // Movimiento horizontal tipo onda seno
     setX(baseX + amplitude * qSin(t));
+}
+void TigerItem::setAlive(bool alive) {
+    isAlive = alive;
+
+    if (!alive) {
+        moveTimer->stop();
+        hide(); // Alternativamente: scene()->removeItem(this);
+    }
 }
