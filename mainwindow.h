@@ -6,6 +6,7 @@
 #include <QGraphicsView>
 #include <QTimer>
 #include <QGraphicsTextItem>
+#include <QPushButton>
 #include <vector>
 
 #include "Game.h"
@@ -13,6 +14,7 @@
 #include "PlayerItem.h"
 #include "FruitItem.h"
 #include "TigerItem.h"
+#include "EnergyBallItem.h" // Bolas de energía
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -26,47 +28,63 @@ public:
     ~MainWindow();
 
 private slots:
-    void on_playButton_clicked(); // Maneja el botón "Jugar"
-    void on_exitButton_clicked(); // Maneja el botón "Salir"
+    void updateGame();                // Lógica del juego
+    void updateLevel1Timer();         // Temporizador nivel 1
+    void spawnLevel3Bullets();        // Balas enemigas nivel 3
 
 private:
-    // UI y lógica de juego
     Ui::MainWindow *ui;
     Game game;
-    std::vector<Level> levels;
     int currentLevelIndex;
 
     // Escena gráfica
     QGraphicsScene* scene;
     PlayerItem* player;
     TigerItem* tiger;
-    QList<FruitItem*> fruits;
-
-    // Nivel actual
-    int currentLevel = 1;
-
-    // Elementos especiales
     QGraphicsPixmapItem* bulma = nullptr;
-    QList<QGraphicsPixmapItem*> balas;
-    QTimer* balaTimer = nullptr;
+    QGraphicsPixmapItem* dragonBall = nullptr;
+    QGraphicsPixmapItem* bulmaNormal = nullptr;  // Bulma en estado "necesita rescate"
+    QGraphicsPixmapItem* bulmaSalvada = nullptr; // Bulma en estado "rescatada"
+    bool bulmaRescatada = false;                 // Bandera de estado
 
-    // Tiempo para el nivel 1
+    // Botones del menú principal
+    QPushButton* playButton = nullptr;
+    QPushButton* exitButton = nullptr;
+
+    // Elementos dinámicos
+    QList<FruitItem*> fruits;
+    QList<EnergyBallItem*> bullets;
+    QList<QGraphicsPixmapItem*> enemyBullets;
+
+    // Temporizadores
+    QTimer* gameTimer = nullptr;
     QTimer* level1Timer = nullptr;
+    QTimer* bulletSpawnerTimer = nullptr;
+
+    // UI en escena
     QGraphicsTextItem* timeText = nullptr;
+    QGraphicsTextItem* fruitCounterText = nullptr;
+    QGraphicsTextItem* bulletCounterText = nullptr;
+
+    // Estado del juego
     int timeRemaining = 30;
+    int fruitsCollected = 0;
+    int bulletsFired = 5;
+    bool tigerDefeated = false;
 
-    // Funciones de configuración
-    void setupLevels();               // Inicializa niveles
-    void startLevel(int index);       // Inicia nivel por índice
-    void showLevelInfo(int index);    // Muestra diálogo informativo
+    // Lógica y configuración
+    void setupLevels();
+    void startLevel(int index);
+    void showMainMenu();
+    void clearScene();
 
-    // Configuración específica de niveles
-    void setupLevel1(); // Nivel con tigre y oscilación
-    void setupLevel2(); // Nivel con Bulma
-    void setupLevel3(); // Nivel con balas y física
+    void setupLevel1();
+    void setupLevel2();
+    void setupLevel3();
 
-    void keyPressEvent(QKeyEvent* event) override; // Teclado
-    void updateLevel1Timer(); // Temporizador del nivel 1
+    void checkCollisions();
+
+    void keyPressEvent(QKeyEvent* event) override;
 };
 
 #endif // MAINWINDOW_H

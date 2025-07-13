@@ -1,364 +1,417 @@
-//Bloque 1
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
-#include "Level.h"
-#include "EnergyBallItem.h" 
-#include <QMessageBox>
 #include <QKeyEvent>
-#include <QGraphicsPixmapItem>
-#include <QTimer>
-#include <QDebug>
-#include <QFont>
+#include <QMessageBox>
+#include <QPixmap>
+#include <QBrush>
+#include <QPalette>
+#include <QGraphicsOpacityEffect>  // Para efectos visuales
+#include <QPropertyAnimation>
 
+//Constructor
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent)
-    , ui(new Ui::MainWindow)
-{
+    : QMainWindow(parent), ui(new Ui::MainWindow) {
     ui->setupUi(this);
 
-    // Botones
-    connect(ui->playButton, &QPushButton::clicked, this, &MainWindow::on_playButton_clicked);
-    connect(ui->exitButton, &QPushButton::clicked, this, &MainWindow::on_exitButton_clicked);
+    // Configuración de la escena gráfica
+    scene = new QGraphicsScene(this);
+    ui->graphicsView->setScene(scene);
+    ui->graphicsView->setFixedSize(800, 600);
+    scene->setSceneRect(0, 0, 798, 598);
 
-    // Ocultar vista de juego hasta iniciar
-    ui->gameView->hide();
+    // Ocultar la vista de gráficos inicialmente
+    ui->graphicsView->hide();
+
+    // Timer principal del juego
+    gameTimer = new QTimer(this);
+    connect(gameTimer, &QTimer::timeout, this, &MainWindow::updateGame);
+
+    ui->graphicsView->show();        // Asegura que se vea el fondo
+    showMainMenu();
 }
 
+//  destructor
 MainWindow::~MainWindow() {
     delete ui;
 }
 
-//Bloque 2
-// Muestra información del nivel en un mensaje
-void MainWindow::showLevelInfo(int index) {
-    if (index >= 0 && static_cast<size_t>(index) < levels.size()) {
-        QMessageBox::information(this,
-                                 QString("Nivel %1").arg(levels[index].levelNumber),
-                                 QString::fromStdString(levels[index].description));
-    }
+// MODIFICACIÓN: Nueva función para la lógica principal del juego
+void MainWindow::updateGame() {
+    scene->advance();
+    checkCollisions();
 }
 
-//Bloque 3: Comenzar un nivel
 void MainWindow::startLevel(int index) {
-    if (index >= 0 && static_cast<size_t>(index) < levels.size()) {
-        currentLevelIndex = index;
-        showLevelInfo(index);
+    clearScene(); // Limpiar la escena antes de cargar un nivel
+    currentLevelIndex = index;
+    tigerDefeated = false; // Reiniciar estado del tigre
 
-        if (QMessageBox::question(this, "¿Completaste el nivel?",
-                                  "¿Deseas avanzar al siguiente nivel?") == QMessageBox::Yes) {
-            if (index + 1 < static_cast<int>(levels.size())) {
-                startLevel(index + 1);
-            } else {
-                QMessageBox::information(this, "¡Felicidades!", "¡Has completado todos los niveles!");
-            }
-        }
+    switch (index) {
+    case 1:
+        setupLevel1();
+        break;
+    case 2:
+        setupLevel2();
+        break;
+    case 3:
+        setupLevel3();
+        break;
+    default:
+        // Regresar al menú si no hay más niveles
+        showMainMenu();
+        return;
     }
+    gameTimer->start(16); // Iniciar el bucle de juego (aprox. 60 FPS)
 }
 
-//Bloque 4: Botones de jugar y salir
-// Inicia el juego
-void MainWindow::on_playButton_clicked() {
-    ui->playButton->hide();
-    ui->exitButton->hide();
-    ui->gameView->show();
-    setupLevel1(); // Comienza en el nivel 1
-}
-
-// Sale del juego
-void MainWindow::on_exitButton_clicked() {
-    close();
-}
-
-
-//Bloque 5: setupLevel1() — Movimiento Oscilatorio Tigre
-void MainWindow::setupLevel1() {
-    currentLevel = 1;
-
-    // Crear escena
-    scene = new QGraphicsScene(this);
-    ui->gameView->setScene(scene);
-    scene->setSceneRect(0, 0, 800, 480);
-    scene->setBackgroundBrush(Qt::gray);
-
-    // Fondo
-    QPixmap fondoPixmap(":/Img/Mapas/1/Fondo.jpg");
-    scene->addPixmap(fondoPixmap)->setZValue(-2);
-
-    // Piso
-    QPixmap pisoPixmap(":/Img/Mapas/1/Piso.jpg");
-    QGraphicsPixmapItem* piso = scene->addPixmap(pisoPixmap);
-    piso->setPos(0, 400);
-    piso->setZValue(-1);
-
-    // Goku (Jugador)
-    player = new PlayerItem();
-    player->setPos(100, 350);
-    scene->addItem(player);
-
-    // Fruta
+// MODIFICACIÓN: Nueva función para limpiar la escena
+void MainWindow::clearScene() {
+    scene->clear();
     fruits.clear();
-    FruitItem* fruta = new FruitItem(600, 350);
-    fruits.append(fruta);
-    scene->addItem(fruta);
+    bullets.clear();
+    enemyBullets.clear();
 
-    // Tigre (con movimiento oscilatorio)
-    tiger = new TigerItem();
-    tiger->setPos(750, 350);
-    scene->addItem(tiger);
+    // Detener todos los timers para que no interfieran
+    if (gameTimer->isActive()) gameTimer->stop();
+    if (level1Timer && level1Timer->isActive()) level1Timer->stop();
+    if (bulletSpawnerTimer && bulletSpawnerTimer->isActive()) bulletSpawnerTimer->stop();
 
-    // Contador de tiempo visual
-    timeRemaining = 30;
-    timeText = new QGraphicsTextItem(QString("Tiempo: %1").arg(timeRemaining));
-    timeText->setDefaultTextColor(Qt::white);
-    timeText->setFont(QFont("Arial", 16, QFont::Bold));
-    timeText->setPos(10, 10);
-    timeText->setZValue(10);
+
+    player = nullptr;
+    tiger = nullptr;
+    bulma = nullptr;
+    dragonBall = nullptr;
+    // Limpiar recursos de Bulma
+    if (bulmaNormal) {
+        scene->removeItem(bulmaNormal);
+        delete bulmaNormal;
+        bulmaNormal = nullptr;
+    }
+    if (bulmaSalvada) {
+        scene->removeItem(bulmaSalvada);
+        delete bulmaSalvada;
+        bulmaSalvada = nullptr;
+    }
+    bulmaRescatada = false;
+}
+
+
+// MODIFICACIÓN: Nueva función para mostrar el menú
+
+void MainWindow::showMainMenu() {
+    scene->clear(); // Limpia la escena anterior
+
+    // Fondo del menú
+    QPixmap fondoMenu(":/Img/Mapas/1/Inicio.jpg");
+    if (!fondoMenu.isNull()) {
+        QGraphicsPixmapItem* fondoItem = scene->addPixmap(fondoMenu);
+        fondoItem->setZValue(-1);
+        scene->setSceneRect(0, 0, fondoMenu.width(), fondoMenu.height());
+    }
+
+    // Mostrar botones — como widgets independientes (NO agregarlos a la escena)
+    playButton = new QPushButton("Play", this);
+    exitButton = new QPushButton("Exit", this);
+
+    playButton->setGeometry(300, 250, 200, 50);
+    exitButton->setGeometry(300, 320, 200, 50);
+
+    playButton->setStyleSheet("background-color: orange; font-size: 18px;");
+    exitButton->setStyleSheet("background-color: crimson; font-size: 18px; color: white;");
+
+    playButton->show();
+    exitButton->show();
+
+    // Conectar señales
+    connect(playButton, &QPushButton::clicked, this, [this]() {
+        // Ocultar botones al iniciar el juego
+        playButton->hide();
+        exitButton->hide();
+        currentLevelIndex = 1;
+        startLevel(currentLevelIndex);
+    });
+
+    connect(exitButton, &QPushButton::clicked, this, &QApplication::quit);
+}
+
+
+void MainWindow::setupLevel1() {
+    // Jugador
+    QPixmap fondo(":/Img/Mapas/1/Fondo.jpg");
+    if (!fondo.isNull()) {
+        QGraphicsPixmapItem* fondoItem = scene->addPixmap(fondo);
+        fondoItem->setZValue(-1); // Detrás de todos los objetos
+         scene->setSceneRect(0, 0, fondo.width(), fondo.height());
+    }
+    player = new PlayerItem();
+    player->setPos(50, 500); // Posición inicial
+    scene->addItem(player);
+    player->setFlag(QGraphicsItem::ItemIsFocusable);
+    player->setFocus();
+
+    // MODIFICACIÓN: Crear 5 frutas en diferentes posiciones
+    fruitsCollected = 0;
+    fruits.append(new FruitItem(150, 500)); // En el suelo
+    fruits.append(new FruitItem(300, 400)); // Requiere salto
+    fruits.append(new FruitItem(450, 500)); // En el suelo
+    fruits.append(new FruitItem(600, 350)); // Requiere salto alto
+    fruits.append(new FruitItem(750, 500)); // Al final
+    for (FruitItem* fruit : fruits) {
+        scene->addItem(fruit);
+    }
+
+    // Interfaz (Contador de frutas y tiempo)
+    fruitCounterText = new QGraphicsTextItem();
+    fruitCounterText->setPlainText("Frutas: 0 / 5");
+    fruitCounterText->setDefaultTextColor(Qt::yellow);
+    fruitCounterText->setFont(QFont("Arial", 16));
+    fruitCounterText->setPos(10, 10);
+    scene->addItem(fruitCounterText);
+
+    timeText = new QGraphicsTextItem();
+    timeRemaining = 20;
+    timeText->setPlainText("Tiempo: " + QString::number(timeRemaining));
+    timeText->setDefaultTextColor(Qt::red);
+    timeText->setFont(QFont("Arial", 16));
+    timeText->setPos(650, 10);
     scene->addItem(timeText);
 
-    // Timer del tiempo del nivel
     level1Timer = new QTimer(this);
     connect(level1Timer, &QTimer::timeout, this, &MainWindow::updateLevel1Timer);
     level1Timer->start(1000);
-
-    // Avance general de la escena
-    QTimer* timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, scene, &QGraphicsScene::advance);
-    timer->start(20);
-
-    // Ataque automático del tigre hacia el jugador
-    QTimer* tigerAttackTimer = new QTimer(this);
-    connect(tigerAttackTimer, &QTimer::timeout, this, [this]() {
-        if (!player || !tiger) return;
-        if (tiger->x() > player->x()) tiger->setX(tiger->x() - 2);
-        else if (tiger->x() < player->x()) tiger->setX(tiger->x() + 2);
-
-        if (player->collidesWithItem(tiger)) {
-            QMessageBox::warning(this, "¡Perdiste!", "El tigre te atrapó");
-            qApp->exit();
-        }
-    });
-    tigerAttackTimer->start(40);
 }
 
+void MainWindow::updateLevel1Timer() {
+    timeRemaining--;
+    timeText->setPlainText("Tiempo: " + QString::number(timeRemaining));
+    if (timeRemaining <= 0) {
+        level1Timer->stop();
+        QMessageBox::information(this, "Tiempo Agotado", "No recolectaste todas las frutas a tiempo.");
+        showMainMenu();
+    }
+}
 
-//Bloque 6: keyPressEvent() — Movimiento y Disparo
+//NIVEL 2
+
+
+void MainWindow::setupLevel2() {
+    // Configuración del fondo
+    QPixmap fondo(":/Img/Mapas/1/Piso.jpg");
+    if (!fondo.isNull()) {
+        QGraphicsPixmapItem* fondoItem = scene->addPixmap(fondo.scaled(800, 600));
+        fondoItem->setZValue(-1);
+        scene->setSceneRect(0, 0, 800, 600);
+    }
+
+    // Jugador
+    player = new PlayerItem();
+    player->setPos(50, 500);
+    scene->addItem(player);
+    player->setFlag(QGraphicsItem::ItemIsFocusable);
+    player->setFocus();
+
+    // Tigre con parámetros de ataque
+    tiger = new TigerItem();
+    tiger->setPos(400, 500);
+    scene->addItem(tiger);
+    tiger->setBaseX(tiger->x());
+    tiger->startPos = tiger->pos();
+    tiger->setTargetPlayer(player);
+
+
+    // Bulma (objetivo)
+    bulmaNormal = new QGraphicsPixmapItem(QPixmap(":/Img/Bulma/Bulma_Salvar.png").scaled(60, 90));
+    bulmaSalvada = new QGraphicsPixmapItem(QPixmap(":/Img/Bulma/Bulma.png").scaled(60, 90));
+    bulmaNormal->setPos(600, 500);
+    bulmaNormal->setZValue(1);
+    scene->addItem(bulmaNormal);
+
+    // UI - Contador de balas
+    bulletsFired = 5;
+    bulletCounterText = new QGraphicsTextItem();
+    bulletCounterText->setPlainText("Balas: " + QString::number(bulletsFired));
+    bulletCounterText->setDefaultTextColor(Qt::cyan);
+    bulletCounterText->setFont(QFont("Arial", 16, QFont::Bold));
+    bulletCounterText->setPos(10, 10);
+    scene->addItem(bulletCounterText);
+    bulmaRescatada = false; // Resetear estado al iniciar nivel
+
+    // Mensaje inicial
+    QGraphicsTextItem* hint = new QGraphicsTextItem("¡Dispara al tigre con F (5 veces)!");
+    hint->setDefaultTextColor(Qt::yellow);
+    hint->setFont(QFont("Arial", 14));
+    hint->setPos(250, 100);
+    scene->addItem(hint);
+    QTimer::singleShot(3000, [hint]() { hint->hide(); });
+}
+
+void MainWindow::setupLevel3() {
+    // Jugador
+    player = new PlayerItem();
+    player->setPos(50, 500);
+    scene->addItem(player);
+    player->setFlag(QGraphicsItem::ItemIsFocusable);
+    player->setFocus();
+
+    // Bulma acompañante
+    bulmaNormal = new QGraphicsPixmapItem(QPixmap(":/Img/Bulma/Bulma.png"));
+    bulmaNormal->setPos(player->x() - 50, player->y()); // Detrás de Goku
+    scene->addItem(bulmaNormal);
+
+    // Esfera del Dragón (objetivo)
+    dragonBall = new QGraphicsPixmapItem(QPixmap(":/Img/Elementos/Bala.png")); // Asegúrate de tenerla
+    dragonBall->setPos(750, 500);
+    scene->addItem(dragonBall);
+
+    // MODIFICACIÓN: Timer para generar balas enemigas
+    bulletSpawnerTimer = new QTimer(this);
+    connect(bulletSpawnerTimer, &QTimer::timeout, this, &MainWindow::spawnLevel3Bullets);
+    bulletSpawnerTimer->start(1500); // Genera una bala cada 1.5 segundos
+}
+
+// MODIFICACIÓN: Nueva función para generar balas en el Nivel 3
+void MainWindow::spawnLevel3Bullets() {
+    int randomType = rand() % 2; // 0 para recta, 1 para parabólica
+
+    if (randomType == 0) { // Bala recta
+        QGraphicsPixmapItem* bullet = new QGraphicsPixmapItem(QPixmap(":/Img/Elementos/Bala.png"));
+        bullet->setPos(800, rand() % 550); // Posición Y aleatoria
+        scene->addItem(bullet);
+        enemyBullets.append(bullet);
+    } else { // Bala parabólica
+        EnergyBallItem* bullet = new EnergyBallItem(800, 500, 150 + (rand() % 20), 8); // Ángulo hacia arriba y a la izquierda
+        scene->addItem(bullet);
+        // La gestionaremos como EnergyBallItem para aprovechar su `advance`
+        bullets.append(bullet);
+    }
+}
+
 void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (!player) return;
 
-    switch (event->key()) {
-    case Qt::Key_A: player->moveLeft(); break;
-    case Qt::Key_D: player->moveRight(); break;
-    case Qt::Key_W: player->jump(); break;
-    case Qt::Key_X: player->attack(); break;
-
-        // Disparo de energía (movimiento parabólico)
-    case Qt::Key_Space: {
-        EnergyBallItem* bola = new EnergyBallItem(player->x() + 30, player->y(), 30.0, 15.0);
-        scene->addItem(bola);
-        break;
+    if (event->key() == Qt::Key_A) {
+        player->moveLeft();
+    } else if (event->key() == Qt::Key_D) {
+        player->moveRight();
     }
+    // MODIFICACIÓN: Tecla de salto W
+    else if (event->key() == Qt::Key_W) {
+        player->jump();
     }
+    // MODIFICACIÓN: Tecla de disparo (F) para Nivel 2
+    else if (event->key() == Qt::Key_F && currentLevelIndex == 2 && bulletsFired > 0 && !tigerDefeated) {
+        EnergyBallItem* ball = new EnergyBallItem(player->x(), player->y(), -20, 15); // Disparo parabólico
+        scene->addItem(ball);
+        bullets.append(ball);
+        bulletsFired--;
+        bulletCounterText->setPlainText("Balas: " + QString::number(bulletsFired));
+    }
+}
 
-    // Revisión de colisión con frutas
-    for (auto f : fruits) {
-        if (player->collidesWithItem(f)) {
-            scene->removeItem(f);
-            fruits.removeOne(f);
-            delete f;
+// MODIFICACIÓN: Lógica central de colisiones
+void MainWindow::checkCollisions() {
+    if (!player) return;
 
-            if (currentLevel == 1) {
-                if (level1Timer) level1Timer->stop();
-                QTimer::singleShot(0, this, [this]() { setupLevel2(); });
+    // Nivel 1: Colisión con frutas
+    if (currentLevelIndex == 1) {
+        QList<FruitItem*> collected;
+        for (FruitItem* fruit : fruits) {
+            if (player->collidesWithItem(fruit)) {
+                collected.append(fruit);
+                scene->removeItem(fruit);
+                fruitsCollected++;
+                fruitCounterText->setPlainText("Frutas: " + QString::number(fruitsCollected) + " / 5");
+            }
+        }
+        for (FruitItem* fruit : collected) {
+            fruits.removeOne(fruit);
+            delete fruit;
+        }
+        // Condición de victoria Nivel 1
+        if (fruitsCollected >= 5) {
+            level1Timer->stop();
+            QMessageBox::information(this, "¡Nivel Completado!", "Has recolectado todas las frutas.");
+            startLevel(2); // Pasar al siguiente nivel
+        }
+    }
+    // Nivel 2: Colisiones de balas y con Bulma
+    if (currentLevelIndex == 2) {
+        // Balas de Goku vs Tigre
+        if (!tigerDefeated) {
+            QList<EnergyBallItem*> bulletsToRemove;
+            for (EnergyBallItem* bullet : bullets) {
+                if (bullet->collidesWithItem(tiger)) {
+                    bulletsToRemove.append(bullet);
+                    tiger->receiveHit();
+                    if (tiger->getHitsReceived() >= 5) {
+                        tigerDefeated = true;
+                        tiger->setAlive(false);
+                        QMessageBox::information(this, "¡Bien Hecho!", "Has derrotado al tigre. ¡Ahora rescata a Bulma!");
+                    }
+                }
+            }
+            for (EnergyBallItem* bullet : bulletsToRemove) {
+                scene->removeItem(bullet);
+                bullets.removeOne(bullet);
+                delete bullet;
+            }
+        }
+
+        // Jugador vs Bulma (condición de victoria)
+        if (tigerDefeated && !bulmaRescatada) {
+            // Detección de colisión simple
+            if (player->collidesWithItem(bulmaNormal)) {
+                bulmaRescatada = true;
+
+                // Cambiar imagen de Bulma sin efectos adicionales
+                scene->removeItem(bulmaNormal);
+                bulmaSalvada->setPos(bulmaNormal->pos());
+                scene->addItem(bulmaSalvada);
+
+                // Mensaje de agradecimiento
+                QMessageBox::information(this,
+                                         "¡Rescate Exitoso!",
+                                         "¡Gracias Goku por salvarme!\n"
+                                         "Preparándote para el próximo nivel...");
+
+                // Pasar al siguiente nivel después de 2 segundos
+                QTimer::singleShot(2000, this, [this]() {
+                    startLevel(3);
+                });
+            }
+        }
+    }
+    // Nivel 3: Colisiones
+    if (currentLevelIndex == 3) {
+        // Mover a Bulma para que siga a Goku
+        if(bulmaNormal) bulmaNormal->setPos(player->x() - 50, player->y());
+
+        // Colisión con balas enemigas
+        for(QGraphicsPixmapItem* bullet : enemyBullets) {
+            bullet->setX(bullet->x() - 10); // Movimiento de la bala recta
+            if (player->collidesWithItem(bullet)) {
+                QMessageBox::critical(this, "¡Has perdido!", "Goku ha sido alcanzado.");
+                showMainMenu();
                 return;
-            } else if (currentLevel == 2) {
-                if (bulma) bulma->setPixmap(QPixmap(":/Img/Bulma/Bulma.png"));
-                QMessageBox::information(this, "¡Salvaste a Bulma!", "¡Bulma es libre!");
-                QTimer::singleShot(0, this, [this]() { setupLevel3(); });
+            }
+            if(bullet->x() < 0) { // Eliminar si sale de pantalla
+                scene->removeItem(bullet);
+                enemyBullets.removeOne(bullet);
+                delete bullet;
+            }
+        }
+        // Colisión con balas parabólicas enemigas
+        for(EnergyBallItem* bullet : bullets) {
+            if (player->collidesWithItem(bullet)) {
+                QMessageBox::critical(this, "¡Has perdido!", "Goku ha sido alcanzado por un disparo parabólico.");
+                showMainMenu();
                 return;
-            } else if (currentLevel == 3) {
-                QMessageBox::information(this, "¡Ganaste!", "¡Has esquivado las balas y recogido la fruta!");
-                qApp->exit();
-                return;
             }
-            break;
+        }
+        // Colisión con Esfera del Dragón (condición de victoria)
+        if (dragonBall && player->collidesWithItem(dragonBall)) {
+            QMessageBox::information(this, "¡Nivel Completado!", "Has encontrado la Esfera del Dragón.");
+            startLevel(4); // Intentar iniciar el siguiente nivel o terminar
         }
     }
 }
-
-
-//Bloque 7: Temporizador Nivel 1 (updateLevel1Timer())
-void MainWindow::updateLevel1Timer() {
-    if (currentLevel != 1) return;
-
-    timeRemaining--;
-    if (timeText) {
-        timeText->setPlainText(QString("Tiempo: %1").arg(timeRemaining));
-        if (timeRemaining <= 10) timeText->setDefaultTextColor(Qt::red);
-    }
-
-    if (timeRemaining <= 0) {
-        if (level1Timer) level1Timer->stop();
-        QMessageBox::warning(this, "¡Tiempo agotado!", "No lograste tomar la fruta. ¡Perdiste!");
-        qApp->exit();
-    }
-}
-
-//Bloque 8: setupLevel2() – Nivel de rescate física directa
-void MainWindow::setupLevel2() {
-    currentLevel = 2;
-
-    // Limpiar escena anterior
-    if (scene) { delete scene; scene = nullptr; }
-    player = nullptr;
-    tiger = nullptr;
-    bulma = nullptr;
-    fruits.clear();
-
-    // Crear nueva escena
-    scene = new QGraphicsScene(this);
-    ui->gameView->setScene(scene);
-    scene->setSceneRect(0, 0, 800, 480);
-    scene->setBackgroundBrush(Qt::gray);
-
-    // Fondo
-    QPixmap fondoPixmap(":/Img/Mapas/1/Fondo.jpg");
-    scene->addPixmap(fondoPixmap)->setZValue(-2);
-
-    // Piso
-    QPixmap pisoPixmap(":/Img/Mapas/1/Piso.jpg");
-    QGraphicsPixmapItem* piso = scene->addPixmap(pisoPixmap);
-    piso->setPos(0, 400);
-    piso->setZValue(-1);
-
-    // Jugador
-    player = new PlayerItem();
-    player->setPos(100, 350);
-    scene->addItem(player);
-
-    // Fruta
-    FruitItem* fruta = new FruitItem(600, 350);
-    fruits.append(fruta);
-    scene->addItem(fruta);
-
-    // Bulma
-    bulma = new QGraphicsPixmapItem(QPixmap(":/Img/Bulma/Bulma_Salvar.png"));
-    bulma->setPos(600, 290);
-    scene->addItem(bulma);
-
-    // Timer para detectar colisión entre jugador y fruta (luego se activa Bulma)
-    QTimer* frutaBulmaTimer = new QTimer(this);
-    connect(frutaBulmaTimer, &QTimer::timeout, this, [this, fruta, frutaBulmaTimer]() {
-        if (player && fruta && player->collidesWithItem(fruta)) {
-            QMessageBox::information(this, "¡Nivel completado!", "¡Has rescatado a Bulma!");
-            frutaBulmaTimer->stop();
-        }
-    });
-    frutaBulmaTimer->start(30);
-}
-
-//Bloque 9: setupLevel3() – Física de proyectiles (balas con trayectoria)
-void MainWindow::setupLevel3() {
-    currentLevel = 3;
-
-    // Limpiar escena y objetos anteriores
-    if (scene) { delete scene; scene = nullptr; }
-    player = nullptr;
-    bulma = nullptr;
-    tiger = nullptr;
-    fruits.clear();
-    for (auto b : balas) delete b;
-    balas.clear();
-    if (balaTimer) { balaTimer->stop(); delete balaTimer; balaTimer = nullptr; }
-
-    // Nueva escena
-    scene = new QGraphicsScene(this);
-    ui->gameView->setScene(scene);
-    scene->setSceneRect(0, 0, 800, 480);
-    scene->setBackgroundBrush(Qt::gray);
-
-    // Fondo y piso
-    QPixmap fondoPixmap(":/Img/Mapas/1/Fondo.jpg");
-    scene->addPixmap(fondoPixmap)->setZValue(-2);
-    QGraphicsPixmapItem* piso = scene->addPixmap(QPixmap(":/Img/Mapas/1/Piso.jpg"));
-    piso->setPos(0, 400);
-    piso->setZValue(-1);
-
-    // Jugador
-    player = new PlayerItem();
-    player->setPos(100, 350);
-    scene->addItem(player);
-
-    // Fruta final
-    FruitItem* fruta = new FruitItem(700, 350);
-    fruits.append(fruta);
-    scene->addItem(fruta);
-
-    // Avance de escena
-    QTimer* timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, scene, &QGraphicsScene::advance);
-    timer->start(20);
-
-    // Timer de balas
-    balaTimer = new QTimer(this);
-    connect(balaTimer, &QTimer::timeout, this, [this]() {
-        static int phase = 0;
-        QPixmap balaPixmap(":/Img/Elementos/Bala.png");
-        QGraphicsPixmapItem* bala = new QGraphicsPixmapItem(balaPixmap);
-        bala->setZValue(1);
-
-        if (phase < 3) {
-            // Balas de arriba hacia abajo
-            int x = 100 + rand() % 600;
-            bala->setPos(x, 0);
-        } else if (phase < 6) {
-            // Balas de derecha a izquierda
-            int y = 50 + rand() % 350;
-            bala->setPos(800, y);
-        }
-        scene->addItem(bala);
-        balas.append(bala);
-
-        // Movimiento
-        QTimer* moveTimer = new QTimer(this);
-        connect(moveTimer, &QTimer::timeout, this, [this, bala, moveTimer]() {
-            if (!bala || !scene) return;
-            if (bala->x() > 0 && bala->y() < 480) {
-                if (bala->x() == 800) bala->setX(bala->x() - 10); // Izquierda
-                else bala->setY(bala->y() + 10);                  // Abajo
-            }
-
-            if (player && bala->collidesWithItem(player)) {
-                QMessageBox::warning(this, "¡Perdiste!", "Te golpeó una bala");
-                qApp->exit();
-            }
-
-            if (bala->x() < 0 || bala->y() > 480) {
-                scene->removeItem(bala);
-                balas.removeOne(bala);
-                delete bala;
-                moveTimer->stop();
-                moveTimer->deleteLater();
-            }
-        });
-        moveTimer->start(30);
-        phase++;
-        if (phase >= 6) balaTimer->stop();
-    });
-    balaTimer->start(1000); // Cada segundo
-
-    // Colisión final con la fruta
-    bool* frutaColisionActiva = new bool(false);
-    QTimer::singleShot(1000, this, [frutaColisionActiva]() { *frutaColisionActiva = true; });
-
-    QTimer* frutaTimer = new QTimer(this);
-    connect(frutaTimer, &QTimer::timeout, this, [this, fruta, frutaTimer, frutaColisionActiva]() {
-        if (*frutaColisionActiva && player && fruta && player->collidesWithItem(fruta)) {
-            QMessageBox::information(this, "¡Ganaste!", "¡Has esquivado las balas y recogido la fruta!\n¡Juego terminado!");
-            frutaTimer->stop();
-            delete frutaColisionActiva;
-            qApp->exit();
-        }
-    });
-    frutaTimer->start(30);
-}
-
