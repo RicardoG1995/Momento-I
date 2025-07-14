@@ -6,7 +6,7 @@ GameDB es un juego de plataformas 2D desarrollado en C++ utilizando el framework
 
 ## 🎮 Características Principales
 
-- **3 Niveles únicos** con mecánicas diferentes
+- **2 Niveles únicos** con mecánicas diferentes
 - **Sistema de física** con gravedad y colisiones
 - **Animaciones fluidas** para personajes y enemigos
 - **Sistema de sonido** con efectos de audio
