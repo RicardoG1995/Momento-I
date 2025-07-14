@@ -116,11 +116,10 @@ Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más det
 
 ## 👥 Autores
 
-- **Desarrollador Principal**: [Tu Nombre]
-- **Fecha de Creación**: 2024
-- **Versión Actual**: 1.0.0
+- **Desarrollador Principal**:Ricardo Gómez
+- **Fecha de Creación**: 2025
+- **Versión Actual**: 1.0
 
-## 📞 Contacto
 
 - **Email**: [tu-email@ejemplo.com]
 - **GitHub**: [tu-usuario-github]
