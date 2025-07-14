@@ -20,9 +20,9 @@ EnergyBallItem::EnergyBallItem(qreal startX, qreal startY, qreal angleDeg, qreal
 
 // Movimiento parabólico + detección de colisiones
 void EnergyBallItem::advance(int phase) {
-    if (!phase) return;
+    if (!phase || !scene()) return;
 
-    // Actualizar posición
+    // Movimiento parabólico
     setX(x() + vx);
     vy += gravity;
     setY(y() + vy);
@@ -31,18 +31,18 @@ void EnergyBallItem::advance(int phase) {
     QList<QGraphicsItem*> colliding = collidingItems();
     for (QGraphicsItem* item : colliding) {
         TigerItem* tiger = dynamic_cast<TigerItem*>(item);
-        if (tiger) {
-            scene()->removeItem(tiger); // Elimina al tigre
-            delete tiger;
-            scene()->removeItem(this); // Elimina la bola también
-            delete this;
+        if (tiger && tiger->isAliveState()) {
+            tiger->receiveHit();            //aplicar golpe
+            scene()->removeItem(this);      // Eliminar la bola
+            deleteLater();
             return;
         }
     }
 
     // Eliminar si se sale del mapa
     if (x() > 800 || y() > 600) {
-        scene()->removeItem(this);
-        delete this;
+        if (scene()) {
+            scene()->removeItem(this);
+        }
     }
 }

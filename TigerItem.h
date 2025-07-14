@@ -32,7 +32,9 @@ public:
     QPointF startPos;
     void returnToStart();                  // Regresa al punto de partida
     void setBaseX(qreal x) { baseX = x; }
-
+     QTimer* moveTimer;
+signals:
+    void tigerShouldBeEliminated();
 private:
     // Sprites
     QPixmap normalPixmap;
@@ -47,7 +49,6 @@ private:
     bool movingRight = true;
 
     // Temporizadores
-    QTimer* moveTimer;
     QTimer* attackTimer;
 
     // Estado del tigre

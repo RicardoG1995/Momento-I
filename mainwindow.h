@@ -8,6 +8,7 @@
 #include <QGraphicsTextItem>
 #include <QPushButton>
 #include <vector>
+#include <QMediaPlayer>  // Añadir Sonido
 
 #include "Game.h"
 #include "Level.h"
@@ -26,16 +27,20 @@ class MainWindow : public QMainWindow {
 public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+void defeatTiger();
 
 private slots:
     void updateGame();                // Lógica del juego
     void updateLevel1Timer();         // Temporizador nivel 1
     void spawnLevel3Bullets();        // Balas enemigas nivel 3
+    void addBulletToList(EnergyBallItem* ball);
+
 
 private:
     Ui::MainWindow *ui;
     Game game;
     int currentLevelIndex;
+    QTimer* balaTimer = nullptr;
 
     // Escena gráfica
     QGraphicsScene* scene;
@@ -51,9 +56,14 @@ private:
     QPushButton* playButton = nullptr;
     QPushButton* exitButton = nullptr;
 
+    //Sonido
+    QMediaPlayer* fruitSound;
+    QMediaPlayer* shootSound;
+
     // Elementos dinámicos
     QList<FruitItem*> fruits;
     QList<EnergyBallItem*> bullets;
+    QList<QGraphicsPixmapItem*> balasEnemigasNivel2;
     QList<QGraphicsPixmapItem*> enemyBullets;
 
     // Temporizadores
@@ -83,6 +93,9 @@ private:
     void setupLevel3();
 
     void checkCollisions();
+    void playFruitSound();
+    void playShootSound();
+
 
     void keyPressEvent(QKeyEvent* event) override;
 };

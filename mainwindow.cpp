@@ -7,12 +7,19 @@
 #include <QPalette>
 #include <QGraphicsOpacityEffect>  // Para efectos visuales
 #include <QPropertyAnimation>
+#include <QGraphicsScene>
 
 //Constructor
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow) {
     ui->setupUi(this);
 
+    // Inicializar sonidos
+    fruitSound = new QMediaPlayer(this);
+    fruitSound->setAudioOutput(new QAudioOutput(this));
+
+    shootSound = new QMediaPlayer(this);
+    shootSound->setAudioOutput(new QAudioOutput(this));
     // Configuración de la escena gráfica
     scene = new QGraphicsScene(this);
     ui->graphicsView->setScene(scene);
@@ -26,8 +33,9 @@ MainWindow::MainWindow(QWidget *parent)
     gameTimer = new QTimer(this);
     connect(gameTimer, &QTimer::timeout, this, &MainWindow::updateGame);
 
-    ui->graphicsView->show();        // Asegura que se vea el fondo
+    ui->graphicsView->show();
     showMainMenu();
+
 }
 
 //  destructor
@@ -53,9 +61,6 @@ void MainWindow::startLevel(int index) {
     case 2:
         setupLevel2();
         break;
-    case 3:
-        setupLevel3();
-        break;
     default:
         // Regresar al menú si no hay más niveles
         showMainMenu();
@@ -68,6 +73,13 @@ void MainWindow::startLevel(int index) {
 void MainWindow::clearScene() {
     scene->clear();
     fruits.clear();
+    // Limpiar balas de energía
+    for (EnergyBallItem* bullet : bullets) {
+        if (bullet->scene()) {
+            scene->removeItem(bullet);
+        }
+        delete bullet;
+    }
     bullets.clear();
     enemyBullets.clear();
 
@@ -79,7 +91,7 @@ void MainWindow::clearScene() {
 
     player = nullptr;
     tiger = nullptr;
-    bulma = nullptr;
+    bulmaNormal = nullptr;
     dragonBall = nullptr;
     // Limpiar recursos de Bulma
     if (bulmaNormal) {
@@ -141,7 +153,7 @@ void MainWindow::setupLevel1() {
     if (!fondo.isNull()) {
         QGraphicsPixmapItem* fondoItem = scene->addPixmap(fondo);
         fondoItem->setZValue(-1); // Detrás de todos los objetos
-         scene->setSceneRect(0, 0, fondo.width(), fondo.height());
+        scene->setSceneRect(0, 0, fondo.width(), fondo.height());
     }
     player = new PlayerItem();
     player->setPos(50, 500); // Posición inicial
@@ -191,6 +203,11 @@ void MainWindow::updateLevel1Timer() {
     }
 }
 
+void MainWindow::addBulletToList(EnergyBallItem* ball) {
+    if (ball && ball->scene() && !bullets.contains(ball)) {
+        bullets.append(ball);
+    }
+}
 //NIVEL 2
 
 
@@ -206,9 +223,25 @@ void MainWindow::setupLevel2() {
     // Jugador
     player = new PlayerItem();
     player->setPos(50, 500);
+    player->setZValue(1);
     scene->addItem(player);
     player->setFlag(QGraphicsItem::ItemIsFocusable);
     player->setFocus();
+
+    //Conecta la señal del jugador a la MainWindow
+    connect(player, &PlayerItem::energyBallFired, this, &MainWindow::addBulletToList);
+
+    // Bulma (objetivo)
+    bulmaNormal = new QGraphicsPixmapItem(QPixmap(":/Img/Bulma/Bulma_Salvar.png").scaled(60, 90));
+    bulmaSalvada = new QGraphicsPixmapItem(QPixmap(":/Img/Bulma/Bulma.png").scaled(60, 90));
+    bulmaNormal->setPos(600, 500);
+    bulmaNormal->setZValue(1);
+    bulmaNormal->setShapeMode(QGraphicsPixmapItem::BoundingRectShape);
+    scene->addItem(bulmaNormal);
+
+    // Debug visual - Mostrar posición
+    qDebug() << "Posición Bulma:" << bulmaNormal->pos();
+    qDebug() << "Posición Inicial Goku:" << player->pos();
 
     // Tigre con parámetros de ataque
     tiger = new TigerItem();
@@ -217,17 +250,13 @@ void MainWindow::setupLevel2() {
     tiger->setBaseX(tiger->x());
     tiger->startPos = tiger->pos();
     tiger->setTargetPlayer(player);
+    player->setTigerReference(tiger);
 
-
-    // Bulma (objetivo)
-    bulmaNormal = new QGraphicsPixmapItem(QPixmap(":/Img/Bulma/Bulma_Salvar.png").scaled(60, 90));
-    bulmaSalvada = new QGraphicsPixmapItem(QPixmap(":/Img/Bulma/Bulma.png").scaled(60, 90));
-    bulmaNormal->setPos(600, 500);
-    bulmaNormal->setZValue(1);
-    scene->addItem(bulmaNormal);
+    bool ok = connect(tiger, &TigerItem::tigerShouldBeEliminated, this, &MainWindow::defeatTiger);
+    qDebug() << "¿Se conectó la señal tigerShouldBeEliminated?" << ok;
 
     // UI - Contador de balas
-    bulletsFired = 5;
+    bulletsFired = 100;
     bulletCounterText = new QGraphicsTextItem();
     bulletCounterText->setPlainText("Balas: " + QString::number(bulletsFired));
     bulletCounterText->setDefaultTextColor(Qt::cyan);
@@ -243,33 +272,43 @@ void MainWindow::setupLevel2() {
     hint->setPos(250, 100);
     scene->addItem(hint);
     QTimer::singleShot(3000, [hint]() { hint->hide(); });
+
+    //Balas enemigas automáticas en fases
+    balaTimer = new QTimer(this);
+    connect(balaTimer, &QTimer::timeout, this, [this]() {
+        QGraphicsPixmapItem* bala = new QGraphicsPixmapItem(QPixmap(":/Img/Elementos/Bala.png"));
+        bala->setZValue(1);
+        int x = 100 + rand() % 600;
+        bala->setPos(x, 0);
+
+        scene->addItem(bala);
+        enemyBullets.append(bala);
+
+        QTimer* moveTimer = new QTimer(this);
+        connect(moveTimer, &QTimer::timeout, this, [this, bala, moveTimer]() {
+            if (bala->scene()) {
+                // Mover según fase
+                if (bala->y() <= 480 && bala->x() > 100) {
+                    bala->setY(bala->y() + 5);  // Vertical
+                }
+
+                if (bala->x() < 0 || bala->y() > 500) {
+                    scene->removeItem(bala);
+                    enemyBullets.removeOne(bala);
+                    delete bala;
+                    moveTimer->stop();
+                    moveTimer->deleteLater();
+                } else if (player && bala->collidesWithItem(player)) {
+                    QMessageBox::critical(this, "¡Perdiste!", "Te golpeó una bala enemiga.");
+                    qApp->exit();
+                }
+            }
+        });
+        moveTimer->start(30);
+    });
+    balaTimer->start(3000);  // Nueva bala cada 3 segundos
 }
 
-void MainWindow::setupLevel3() {
-    // Jugador
-    player = new PlayerItem();
-    player->setPos(50, 500);
-    scene->addItem(player);
-    player->setFlag(QGraphicsItem::ItemIsFocusable);
-    player->setFocus();
-
-    // Bulma acompañante
-    bulmaNormal = new QGraphicsPixmapItem(QPixmap(":/Img/Bulma/Bulma.png"));
-    bulmaNormal->setPos(player->x() - 50, player->y()); // Detrás de Goku
-    scene->addItem(bulmaNormal);
-
-    // Esfera del Dragón (objetivo)
-    dragonBall = new QGraphicsPixmapItem(QPixmap(":/Img/Elementos/Bala.png")); // Asegúrate de tenerla
-    dragonBall->setPos(750, 500);
-    scene->addItem(dragonBall);
-
-    // MODIFICACIÓN: Timer para generar balas enemigas
-    bulletSpawnerTimer = new QTimer(this);
-    connect(bulletSpawnerTimer, &QTimer::timeout, this, &MainWindow::spawnLevel3Bullets);
-    bulletSpawnerTimer->start(1500); // Genera una bala cada 1.5 segundos
-}
-
-// MODIFICACIÓN: Nueva función para generar balas en el Nivel 3
 void MainWindow::spawnLevel3Bullets() {
     int randomType = rand() % 2; // 0 para recta, 1 para parabólica
 
@@ -279,13 +318,11 @@ void MainWindow::spawnLevel3Bullets() {
         scene->addItem(bullet);
         enemyBullets.append(bullet);
     } else { // Bala parabólica
-        EnergyBallItem* bullet = new EnergyBallItem(800, 500, 150 + (rand() % 20), 8); // Ángulo hacia arriba y a la izquierda
+        EnergyBallItem* bullet = new EnergyBallItem(800, 500, 150 + (rand() % 20), 8);
         scene->addItem(bullet);
-        // La gestionaremos como EnergyBallItem para aprovechar su `advance`
         bullets.append(bullet);
     }
 }
-
 void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (!player) return;
 
@@ -300,9 +337,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     }
     // MODIFICACIÓN: Tecla de disparo (F) para Nivel 2
     else if (event->key() == Qt::Key_F && currentLevelIndex == 2 && bulletsFired > 0 && !tigerDefeated) {
-        EnergyBallItem* ball = new EnergyBallItem(player->x(), player->y(), -20, 15); // Disparo parabólico
-        scene->addItem(ball);
-        bullets.append(ball);
+        player->shootEnergyBall(); // usa la lógica encapsulada
         bulletsFired--;
         bulletCounterText->setPlainText("Balas: " + QString::number(bulletsFired));
     }
@@ -312,7 +347,9 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 void MainWindow::checkCollisions() {
     if (!player) return;
 
-    // Nivel 1: Colisión con frutas
+    // =============================================
+    // NIVEL 1: Colisión con frutas
+    // =============================================
     if (currentLevelIndex == 1) {
         QList<FruitItem*> collected;
         for (FruitItem* fruit : fruits) {
@@ -321,6 +358,8 @@ void MainWindow::checkCollisions() {
                 scene->removeItem(fruit);
                 fruitsCollected++;
                 fruitCounterText->setPlainText("Frutas: " + QString::number(fruitsCollected) + " / 5");
+                //Reproducir sonido de recolectar fruta
+                playFruitSound();
             }
         }
         for (FruitItem* fruit : collected) {
@@ -334,84 +373,129 @@ void MainWindow::checkCollisions() {
             startLevel(2); // Pasar al siguiente nivel
         }
     }
-    // Nivel 2: Colisiones de balas y con Bulma
+
+    // =============================================
+    // NIVEL 2: Colisiones de balas y con Bulma (VERSIÓN DEFINITIVA)
+    // =============================================
     if (currentLevelIndex == 2) {
-        // Balas de Goku vs Tigre
-        if (!tigerDefeated) {
-            QList<EnergyBallItem*> bulletsToRemove;
-            for (EnergyBallItem* bullet : bullets) {
-                if (bullet->collidesWithItem(tiger)) {
-                    bulletsToRemove.append(bullet);
-                    tiger->receiveHit();
-                    if (tiger->getHitsReceived() >= 5) {
-                        tigerDefeated = true;
-                        tiger->setAlive(false);
-                        QMessageBox::information(this, "¡Bien Hecho!", "Has derrotado al tigre. ¡Ahora rescata a Bulma!");
-                    }
-                }
+        // 1. Manejo de balas
+        auto it = bullets.begin();
+        while (it != bullets.end()) {
+            EnergyBallItem* bullet = *it;
+
+            if (!bullet) {
+                it = bullets.erase(it);
+                continue;
             }
-            for (EnergyBallItem* bullet : bulletsToRemove) {
-                scene->removeItem(bullet);
-                bullets.removeOne(bullet);
+
+            // Verificar si la bala fue eliminada por otro proceso
+            if (!bullet->scene()) {
                 delete bullet;
+                it = bullets.erase(it);
+                continue;
+            }
+
+            bool collisionWithTiger = false;
+
+            // Colisión con el tigre
+            if (!tigerDefeated && tiger && tiger->isAliveState() && bullet->collidesWithItem(tiger)) {
+                qDebug() << "Referencia del TIGER desde MainWindow:" << static_cast<void*>(tiger);
+                qDebug() << "ANTES de recibir golpe: " << tiger->getHitsReceived();
+                tiger->receiveHit(); // Sumar impacto
+                qDebug() << "DESPUÉS de recibir golpe: " << tiger->getHitsReceived();
+                qDebug() << "Impactos al tigre:" << tiger->getHitsReceived();
+
+                qDebug() << "Clase de tiger evaluado:" << tiger->metaObject()->className();
+                qDebug() << "MainWindow ve hits:" << tiger->getHitsReceived();
+                if (tiger->getHitsReceived() >= 5 && !tigerDefeated ) {
+                    qDebug() << " TIGRE DERROTADO. Ejecutando lógica de eliminación.";
+                    tigerDefeated = true;
+                    tiger->setAlive(false);
+                    tiger->hide();
+                    qDebug() << "¿Tigre tiene escena antes de eliminar?" << tiger->scene();
+                    if (tiger->scene()) {
+                        scene->removeItem(tiger);  // Lo elimina visualmente
+                    }
+                    if (tiger->moveTimer) {
+                        tiger->moveTimer->stop();  //  Esto detiene la lógica oscilante
+                    }
+                    player->setTigerReference(nullptr);
+                    tiger->deleteLater();
+                    QMessageBox::information(this, "¡Victoria!", "Has derrotado al tigre. ¡Ahora rescata a Bulma!");
+                }
+                collisionWithTiger = true;
+            }
+            // Eliminar balas fuera de pantalla
+            else if (bullet->x() < 0 || bullet->x() > 800 || bullet->y() > 600) {
+                collisionWithTiger = true; // Marcamos para eliminar
+            }
+
+            if (collisionWithTiger) {
+                if (bullet->scene()) {
+                    scene->removeItem(bullet);
+                }
+                delete bullet;
+                it = bullets.erase(it);
+            } else {
+                ++it;
             }
         }
 
-        // Jugador vs Bulma (condición de victoria)
-        if (tigerDefeated && !bulmaRescatada) {
-            // Detección de colisión simple
+        // 2. Rescate de Bulma
+        if (tigerDefeated && !bulmaRescatada && bulmaNormal && bulmaNormal->scene()) {
             if (player->collidesWithItem(bulmaNormal)) {
                 bulmaRescatada = true;
+                QPointF bulmaPos = bulmaNormal->pos();
 
-                // Cambiar imagen de Bulma sin efectos adicionales
+                // Eliminar Bulma normal
                 scene->removeItem(bulmaNormal);
-                bulmaSalvada->setPos(bulmaNormal->pos());
-                scene->addItem(bulmaSalvada);
+                delete bulmaNormal;
+                bulmaNormal = nullptr;
 
-                // Mensaje de agradecimiento
-                QMessageBox::information(this,
-                                         "¡Rescate Exitoso!",
+                // Mostrar Bulma rescatada
+                if (bulmaSalvada) {
+                    bulmaSalvada->setPos(bulmaPos);
+                    scene->addItem(bulmaSalvada);
+                }
+
+                QMessageBox::information(this, "¡Rescate Exitoso!",
                                          "¡Gracias Goku por salvarme!\n"
                                          "Preparándote para el próximo nivel...");
 
-                // Pasar al siguiente nivel después de 2 segundos
                 QTimer::singleShot(2000, this, [this]() {
                     startLevel(3);
                 });
             }
         }
     }
-    // Nivel 3: Colisiones
-    if (currentLevelIndex == 3) {
-        // Mover a Bulma para que siga a Goku
-        if(bulmaNormal) bulmaNormal->setPos(player->x() - 50, player->y());
 
-        // Colisión con balas enemigas
-        for(QGraphicsPixmapItem* bullet : enemyBullets) {
-            bullet->setX(bullet->x() - 10); // Movimiento de la bala recta
-            if (player->collidesWithItem(bullet)) {
-                QMessageBox::critical(this, "¡Has perdido!", "Goku ha sido alcanzado.");
-                showMainMenu();
-                return;
-            }
-            if(bullet->x() < 0) { // Eliminar si sale de pantalla
-                scene->removeItem(bullet);
-                enemyBullets.removeOne(bullet);
-                delete bullet;
-            }
-        }
-        // Colisión con balas parabólicas enemigas
-        for(EnergyBallItem* bullet : bullets) {
-            if (player->collidesWithItem(bullet)) {
-                QMessageBox::critical(this, "¡Has perdido!", "Goku ha sido alcanzado por un disparo parabólico.");
-                showMainMenu();
-                return;
-            }
-        }
-        // Colisión con Esfera del Dragón (condición de victoria)
-        if (dragonBall && player->collidesWithItem(dragonBall)) {
-            QMessageBox::information(this, "¡Nivel Completado!", "Has encontrado la Esfera del Dragón.");
-            startLevel(4); // Intentar iniciar el siguiente nivel o terminar
-        }
+}
+void MainWindow::playFruitSound() {
+    if (!fruitSound->source().isEmpty()) {
+        fruitSound->play();
+        return;
     }
+    fruitSound->setSource(QUrl(":/sounds/fruit_collect.wav"));
+    fruitSound->play();
+}
+
+void MainWindow::playShootSound() {
+    if (!shootSound->source().isEmpty()) {
+        shootSound->play();
+        return;
+    }
+    shootSound->setSource(QUrl(":/sounds/energy_ball.wav"));
+    shootSound->play();
+}
+void MainWindow::defeatTiger() {
+    if (!tiger || tigerDefeated) return;
+
+    tigerDefeated = true;
+    tiger->setAlive(false);
+    tiger->hide();
+    if (tiger->scene()) scene->removeItem(tiger);
+    if (tiger->moveTimer) tiger->moveTimer->stop();
+    player->setTigerReference(nullptr);
+    tiger->deleteLater();
+    QMessageBox::information(this, "¡Victoria!", "Has derrotado al tigre. ¡Ahora rescata a Bulma!");
 }

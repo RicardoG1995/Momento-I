@@ -86,12 +86,20 @@ void TigerItem::setAlive(bool alive) {
 
 // Recibe impacto. Si llega a 5, muere.
 void TigerItem::receiveHit() {
-    if (!isAlive) return;
-
+    qDebug() << "Tigre que recibe el golpe (dentro de TigerItem):" << static_cast<void*>(this);
+    qDebug() << "Recibiendo golpe...";
     hitsReceived++;
+    qDebug() << "Hits acumulados:" << hitsReceived;
     if (hitsReceived >= 5) {
-        setAlive(false);
+        qDebug() << "Emitiendo señal tigerShouldBeEliminated";
+        emit tigerShouldBeEliminated();
     }
+
+    // Mostrar sprite de daño temporalmente
+    setPixmap(QPixmap(":/Img/Enemigos/Tigre_Herido.png"));
+    QTimer::singleShot(200, this, [this]() {
+        setPixmap(normalPixmap);
+    });
 }
 
 // Permite definir el objetivo del ataque
